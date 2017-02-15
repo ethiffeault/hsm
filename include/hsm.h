@@ -259,6 +259,15 @@ struct StateOverride
 
 typedef std::function<void (State*)> OnEnterArgsFunc;
 
+// MSVC 14 (VS 2015) doesn't handle generating lambdas that capture C-style arrays ("const T(&)[n]")
+// by value, emitting error "array initialization requires a brace-enclosed initializer list".
+// The most common case that this affects are immediate strings, so we work around this issue by
+// detecting this case and forwarding them as "const char*", which is safe since immediate strings
+// have global lifetime.
+#ifdef _MSC_VER
+#define DECAY_IMMEDIATE_STRINGS_WHEN_FORWARDING
+#endif
+
 namespace detail
 {
 	// Generates a lambda that will invoke TargetState::OnEnter with matching args.
@@ -268,101 +277,35 @@ namespace detail
 	{
 		static_assert(std::is_convertible<TargetState, State>::value, "TargetState must derive from hsm::State");
 
-		// Purposely capture args by copy rather than by reference in case args are stack
+		// Purposely capture args by copy rather than by reference in case args are
 		// created on the stack. Use std::ref() to wrap args that do not need to be copied.
-		return [args...] (State* state) { (static_cast<TargetState*>(state))->OnEnter(args...); };
+		return [args...](State* state) { (static_cast<TargetState*>(state))->OnEnter(std::move(args)...); };
 	}
-}
 
-#ifdef _MSC_VER
-#define FORWARD_IMMEDIATE_STRING_WORKAROUND
-#endif
-
-#if !defined(FORWARD_IMMEDIATE_STRING_WORKAROUND)
-
-// Normal case: Replace detail::GenerateOnEnterArgsFunc with detail::DoGenerateOnEnterArgsFunc
-#define GenerateOnEnterArgsFunc DoGenerateOnEnterArgsFunc
-
-#else
-
-// MSVC 14 (VS 2015) doesn't handle generating lambdas that capture C-style arrays ("const T(&)[n]")
-// by value, emitting error "array initialization requires a brace-enclosed initializer list".
-// The most common case that this affects are immediate strings, so we work around this issue by
-// detecting this case and forwarding them as "const char*", which is safe since immediate strings
-// have global lifetime.
-
-namespace detail
-{
+	// Base case: do nothing
 	template <typename T>
-	T&& ImmediateStringDecayForward(T&& arg1)
+	T&& DecayIfImmediateString(T&& arg1)
 	{
 		return std::forward<T>(arg1);
 	}
 
+	// If immediate string, decay to const char*
 	template <size_t _Nx>
-	const char* ImmediateStringDecayForward(const char(&arr)[_Nx])
+	const char* DecayIfImmediateString(const char(&arr)[_Nx])
 	{
 		return static_cast<const char*>(arr);
 	}
 
-#define _FD(argPos) ImmediateStringDecayForward(std::forward<T##argPos>(a##argPos))
-
-	template <typename TargetState, typename T1>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1)
+	template <typename TargetState, typename... Args>
+	OnEnterArgsFunc GenerateOnEnterArgsFunc(Args&&... args)
 	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1));
+#ifdef DECAY_IMMEDIATE_STRINGS_WHEN_FORWARDING
+		return DoGenerateOnEnterArgsFunc<TargetState>(DecayIfImmediateString(args)...);
+#else
+		return DoGenerateOnEnterArgsFunc<TargetState>(std::forward<Args>(args)...);
+#endif // DECAY_IMMEDIATE_STRINGS_WHEN_FORWARDING
 	}
-	template <typename TargetState, typename T1, typename T2>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5), _FD(6));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5), _FD(6), _FD(7));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7, T8&& a8)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5), _FD(6), _FD(7), _FD(8));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8, typename T9>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7, T8&& a8, T9&& a9)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5), _FD(6), _FD(7), _FD(8), _FD(9));
-	}
-	template <typename TargetState, typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7, typename T8, typename T9, typename T10>
-	OnEnterArgsFunc GenerateOnEnterArgsFunc(T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7, T8&& a8, T9&& a9, T10&& a10)
-	{
-		return DoGenerateOnEnterArgsFunc<TargetState>(_FD(1), _FD(2), _FD(3), _FD(4), _FD(5), _FD(6), _FD(7), _FD(8), _FD(9), _FD(10));
-	}
-
-#undef _FD
-
 } // namespace detail
-
-#endif // FORWARD_IMMEDIATE_STRING_WORKAROUND
 
 
 // Transition objects are created via the free-standing transition functions below, and typically returned by
