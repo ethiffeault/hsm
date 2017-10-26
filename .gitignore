@@ -1,3 +1,13 @@
 build*/
 .vs/
 .vscode/
+*CMakeFiles*
+*.filters
+*.cmake
+*.vcxproj
+*.sln
+CMakeCache.txt
+Debug/
+Release/
+*.db
+*.opendb
