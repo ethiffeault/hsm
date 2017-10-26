@@ -67,9 +67,18 @@ struct CharacterStates
 		}
 	};
 
-	struct Jump : BaseState
+	struct JumpBase
 	{
-		virtual Transition GetTransition()
+		virtual void OnEnter() = 0;
+	};
+
+	struct Jump : BaseState, JumpBase
+	{
+		void OnEnter() override
+		{
+		}
+
+		Transition GetTransition() override
 		{
 			return SiblingTransition<Stand>();
 		}
@@ -118,9 +127,13 @@ struct HeroStates
 		}
 	};
 
-	struct Jump : BaseState
+	struct Jump : BaseState, CharacterStates::JumpBase
 	{
-		virtual Transition GetTransition()
+		void OnEnter() override
+		{
+		}
+
+		Transition GetTransition() override
 		{
 			return SiblingTransition<CharacterStates::Stand>();
 		}
